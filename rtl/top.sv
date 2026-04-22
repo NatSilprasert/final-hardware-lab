@@ -140,6 +140,7 @@ module top (
     // -------------------- Camera capture --------------------
     logic        pix_valid;
     logic [11:0] cap_rgb444;
+    logic [ 7:0] cap_rgb332;
     logic [15:0] cap_rgb565;
     logic [9:0]  cap_col, cap_row;
     logic        cap_fs, cap_fe;
@@ -153,6 +154,7 @@ module top (
         .d           (cam_data),
         .pix_valid   (pix_valid),
         .pix_rgb444  (cap_rgb444),
+        .pix_rgb332  (cap_rgb332),
         .pix_rgb565  (cap_rgb565),
         .col         (cap_col),
         .row         (cap_row),
@@ -193,16 +195,31 @@ module top (
         .fb_row  (fb_row_r)
     );
 
+    // Frame buffer stores RGB332 (8-bit).  We expand to RGB444 on read.
+    logic [7:0]  fb_dout_332;
     logic [11:0] fb_dout;
-    frame_buffer u_fb (
+    frame_buffer #(.DATA_W(8)) u_fb (
         .clk_wr  (cam_pclk),
         .we      (fb_we),
         .addr_wr (cap_fb_addr),
-        .din     (cap_rgb444),
+        .din     (cap_rgb332),
         .clk_rd  (clk_vga),
         .addr_rd (rd_addr),
-        .dout    (fb_dout)
+        .dout    (fb_dout_332)
     );
+
+    // RGB332 -> RGB444 via bit replication
+    //   R3 -> R4: {r[2:0], r[2]}                    (top bit copied as LSB)
+    //   G3 -> G4: {g[2:0], g[2]}
+    //   B2 -> B4: {b[1:0], b[1:0]}                  (2 bits replicated to 4)
+    logic [2:0] fb_r3, fb_g3;
+    logic [1:0] fb_b2;
+    assign fb_r3 = fb_dout_332[7:5];
+    assign fb_g3 = fb_dout_332[4:2];
+    assign fb_b2 = fb_dout_332[1:0];
+    assign fb_dout = {fb_r3, fb_r3[2],
+                      fb_g3, fb_g3[2],
+                      fb_b2, fb_b2};
 
     // -------------------- Line buffer (Mode B stream-through) --------------
     // Grayscale value at capture time (for Sobel)

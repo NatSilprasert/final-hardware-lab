@@ -6,8 +6,13 @@
 //   Byte 1 (second PCLK)            :  G[2:0], B[4:0]  -> D[7:0]
 // Giving 16-bit pixel: {R[4:0], G[5:0], B[4:0]}
 //
-// We repack to 12-bit RGB444 (drop LSB) to fit our frame buffer:
-//   {R[4:1], G[5:2], B[4:1]}
+// We produce three repackings simultaneously for different consumers:
+//   * pix_rgb565  : raw 16-bit value
+//   * pix_rgb444  : 12-bit {R[4:1], G[5:2], B[4:1]}  (filters)
+//   * pix_rgb332  :  8-bit {R[4:2], G[5:3], B[4:3]}  (frame buffer storage)
+//
+// RGB332 cuts BRAM usage by 33% (critical to fit Basys 3).  The top level
+// expands RGB332 back to RGB444 by bit-replication after reading the buffer.
 //
 // Outputs a write-enable + address + pixel every second PCLK.  Coordinates
 // reset on VSYNC (frame start).  Column counter advances on HREF high;
@@ -31,6 +36,7 @@ module ov7670_capture #(
     // Pixel stream output (synchronous to pclk)
     output logic                    pix_valid,
     output logic [11:0]             pix_rgb444,
+    output logic [ 7:0]             pix_rgb332,
     output logic [15:0]             pix_rgb565,
     output logic [9:0]              col,          // 0..639
     output logic [9:0]              row,          // 0..479
@@ -113,6 +119,8 @@ module ov7670_capture #(
     assign pix_rgb565 = rgb565_r;
     // RGB565 -> RGB444: drop 1 bit of R, 2 bits of G, 1 bit of B
     assign pix_rgb444 = {rgb565_r[15:12], rgb565_r[10:7], rgb565_r[4:1]};
+    // RGB565 -> RGB332: keep top 3 bits of R, top 3 of G, top 2 of B
+    assign pix_rgb332 = {rgb565_r[15:13], rgb565_r[10:8], rgb565_r[4:3]};
 
     // Linear frame buffer address for QVGA (320x240).  The caller gates this
     // with (col<320 && row<240) before committing the write.  We still

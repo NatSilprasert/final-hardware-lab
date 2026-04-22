@@ -12,6 +12,7 @@ module tb_ov7670_capture;
 
     logic        pix_valid, frame_start, frame_end;
     logic [11:0] pix444;
+    logic [7:0]  pix332;
     logic [15:0] pix565;
     logic [9:0]  col, row;
     logic [16:0] fb_addr;
@@ -21,6 +22,7 @@ module tb_ov7670_capture;
         .vsync(vsync), .href(href), .d(d),
         .pix_valid(pix_valid),
         .pix_rgb444(pix444),
+        .pix_rgb332(pix332),
         .pix_rgb565(pix565),
         .col(col), .row(row),
         .frame_start(frame_start),

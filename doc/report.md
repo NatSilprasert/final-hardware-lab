@@ -49,7 +49,7 @@ switch:
 | `sccb_rom`           | Register tables for QVGA and VGA RGB565 |
 | `cam_configurator`   | Power-up sequence and ROM streamer |
 | `ov7670_capture`     | Byte assembly + column/row counters |
-| `frame_buffer`       | 320x240 × 12-bit dual-clock BRAM |
+| `frame_buffer`       | 320x240 × 8-bit (RGB332) dual-clock BRAM |
 | `line_buffer_3row`   | 3x3 sliding window for convolution |
 | `vga_sync`           | 640x480@60 sync generator |
 | `addr_gen`           | Frame-buffer read address w/ pixel doubling |
@@ -65,14 +65,19 @@ Basys 3 provides **1,800 Kbits** of BRAM.
 
 | Structure              | Size              | Bits     |
 |------------------------|-------------------|----------|
-| `frame_buffer`         | 320×240 × 12 bit  | 921,600  |
+| `frame_buffer`         | 320×240 × 8 bit   | 614,400  |
 | `line_buffer_3row`     | 2 × 640 × 4 bit   | 5,120    |
 | Miscellaneous          | —                 | <1 Kb    |
-| **Total**              |                   | **~928 Kb** |
+| **Total**              |                   | **~620 Kb** |
 
-Approximately **51%** of BRAM is used, leaving ample headroom for
-future expansion (e.g., a larger line buffer for convolution in Mode B,
-or upgrading to RGB565 storage).
+Approximately **34%** of BRAM is used.  RGB332 was chosen over RGB444 to
+ensure efficient RAMB36/RAMB18 packing on the Artix-7 35T (first try at
+12-bit RGB444 triggered a RAMB36/FIFO over-utilization DRC because the
+76,800-deep × 12-bit geometry did not tile neatly into any native BRAM
+configuration — 2048×9 mode needed ~76 RAMB18 which exceeds Basys 3's
+budget).  The top-level expands the stored RGB332 back to RGB444 by
+bit-replication before feeding filters, so visual quality in practice
+is close to the original plan.
 
 ### 5. Filter design notes
 
