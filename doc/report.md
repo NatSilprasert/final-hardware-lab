@@ -49,7 +49,7 @@ switch:
 | `sccb_rom`           | Register tables for QVGA and VGA RGB565 |
 | `cam_configurator`   | Power-up sequence and ROM streamer |
 | `ov7670_capture`     | Byte assembly + column/row counters |
-| `frame_buffer`       | 320x240 × 8-bit (RGB332) dual-clock BRAM |
+| `frame_buffer`       | 320x240 × 4-bit luma (Y) dual-clock BRAM |
 | `line_buffer_3row`   | 3x3 sliding window for convolution |
 | `vga_sync`           | 640x480@60 sync generator |
 | `addr_gen`           | Frame-buffer read address w/ pixel doubling |
@@ -65,19 +65,28 @@ Basys 3 provides **1,800 Kbits** of BRAM.
 
 | Structure              | Size              | Bits     |
 |------------------------|-------------------|----------|
-| `frame_buffer`         | 320×240 × 8 bit   | 614,400  |
+| `frame_buffer`         | 320×240 × 4 bit   | 307,200  |
 | `line_buffer_3row`     | 2 × 640 × 4 bit   | 5,120    |
 | Miscellaneous          | —                 | <1 Kb    |
-| **Total**              |                   | **~620 Kb** |
+| **Total**              |                   | **~313 Kb** |
 
-Approximately **34%** of BRAM is used.  RGB332 was chosen over RGB444 to
-ensure efficient RAMB36/RAMB18 packing on the Artix-7 35T (first try at
-12-bit RGB444 triggered a RAMB36/FIFO over-utilization DRC because the
-76,800-deep × 12-bit geometry did not tile neatly into any native BRAM
-configuration — 2048×9 mode needed ~76 RAMB18 which exceeds Basys 3's
-budget).  The top-level expands the stored RGB332 back to RGB444 by
-bit-replication before feeding filters, so visual quality in practice
-is close to the original plan.
+This evolved through three iterations:
+
+1. **Plan: 12-bit RGB444.**  76,800 × 12 bits = 921,600 bits.  Vivado
+   needed ~76 RAMB18 to hold this because the 76,800-deep × 12-bit
+   geometry does not tile cleanly into any native BRAM configuration,
+   triggering a `[DRC UTLZ-1]` over-utilization error.
+2. **Attempt: 8-bit RGB332.**  Halved the data width and removed the
+   in-RAM bounds check.  Vivado still placed 48 BRAM (limit 40) because
+   the 76,800 depth got rounded up to the next native size and was
+   replicated for the 8-bit width.
+3. **Final: 4-bit grayscale (Y).**  Storing only luma fits the memory in
+   `RAMB36 (8192×4)` mode → `ceil(76800/8192) = 10 RAMB36`, well below
+   the 40-site budget on `xc7a35t`.  All filters already operate on luma
+   (`grayscale`, `invert`, `sobel`), so the pipeline is unchanged; the
+   only visible cost is that the *raw* mode displays a grayscale image
+   rather than a colour one.  The top level replicates `Y` onto all three
+   colour channels so the rest of the data path remains 12-bit RGB444.
 
 ### 5. Filter design notes
 
@@ -135,7 +144,10 @@ Both sync pulses are active-low.
   would be 3.6 Mb — more than the Basys 3 has.  Mode B sidesteps this
   by keeping only 3 rows of grayscale data in the line buffer.
 * **Cross-domain BRAM writes.** Avoided by using a genuine dual-clock
-  BRAM inference pattern and adding `set_false_path` constraints.
+  BRAM inference pattern; the constraint file declares the camera PCLK
+  family and the system-clock/MMCM family as asynchronous via
+  `set_clock_groups -asynchronous` so STA does not chase paths through
+  the BRAM.
 
 ### 9. Testbench coverage
 

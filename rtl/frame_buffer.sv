@@ -4,24 +4,27 @@
 //   Port A : write side, clocked by clk_wr (camera PCLK).
 //   Port B : read  side, clocked by clk_rd (VGA clock).
 //
-// Storage: 320 x 240 pixels x 8 bits RGB332.  We store RGB332 to stay well
-// within the Basys 3 BRAM budget (76,800 x 8 = 614,400 bits ~= 34% of the
-// 1.8 Mbit BRAM).  The top-level expands RGB332 back to RGB444 by
-// bit-replication before feeding filters so the visual pipeline is unchanged.
+// Storage: 320 x 240 pixels x 4 bits grayscale luma (Y).  4-bit Y is chosen
+// over RGB332/RGB444 so the frame fits inside Basys 3's BRAM budget even
+// when Vivado rounds the 76,800-deep geometry up to a native BRAM depth:
 //
-// Packing with 8-bit words lets Vivado use a RAMB36 in the 4096x9
-// configuration, giving about 19 RAMB36 sites for the frame buffer
-// (fits comfortably in the Artix-7 35T).
+//   76,800 x 4 = 307,200 bits
+//   RAMB36 in 8192x4 mode  -> ceil(76800/8192) = 10 RAMB36 tiles
+//   (well within the 40 available BRAM sites on xc7a35t).
 //
-// Vivado infers this pattern as a dual-clock dual-port BRAM without any
-// primitive instantiations.  We explicitly hint ram_style = "block" and
-// omit the address bound check so the tool does not insert a comparator
-// that blocks BRAM inference.
+// The top-level replicates the stored Y onto all three channels to give a
+// grayscale "color" image.  Filters (grayscale, invert, Sobel) all operate
+// on luma anyway, so the visual pipeline is unchanged; only the raw mode
+// is a grayscale video instead of a colour one (documented in the report
+// as an intentional memory-budget trade-off).
+//
+// Vivado infers this pattern as a dual-clock dual-port BRAM with no
+// primitive instantiation required.
 // ============================================================================
 `timescale 1ns/1ps
 
 module frame_buffer #(
-    parameter int DATA_W    = 8,
+    parameter int DATA_W    = 4,
     parameter int DEPTH     = 320*240,
     parameter int ADDR_W    = $clog2(320*240)   // 17
 ) (
@@ -39,9 +42,7 @@ module frame_buffer #(
 
     (* ram_style = "block" *) logic [DATA_W-1:0] mem [0:DEPTH-1];
 
-    // Unconditional write: the caller gates "we" when (col,row) are in-range,
-    // so no range check is needed here.  Removing it keeps the inference
-    // pattern simple and lets Vivado pack efficiently.
+    // Unconditional write: the caller gates "we" when (col,row) are in-range.
     always_ff @(posedge clk_wr) begin
         if (we) mem[addr_wr] <= din;
     end

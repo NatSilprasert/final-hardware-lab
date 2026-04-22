@@ -120,10 +120,20 @@ set_property PACKAGE_PIN A15 [get_ports cam_siod]
 ## Declare PCLK as clock (incoming from camera, ~12-25 MHz)
 create_clock -add -name cam_pclk_pin -period 40.00 -waveform {0 20} [get_ports cam_pclk]
 
-## False paths for asynchronous domain crossings that use dual-clock BRAM
-## (the BRAM itself handles the crossing; tell the tool so slack isn't chased)
-set_false_path -from [get_clocks cam_pclk_pin]   -to [get_clocks -include_generated_clocks *vga_clk*]
-set_false_path -from [get_clocks -include_generated_clocks *vga_clk*] -to [get_clocks cam_pclk_pin]
+## Asynchronous clock domains.
+##
+## We have two unrelated clock families:
+##   * cam_pclk_pin              : OV7670 PCLK (input, ~25 MHz, free-running)
+##   * sys_clk_pin + MMCM outputs : 100 MHz board clock and the clk_sys/
+##                                  clk_vga/xclk that the MMCM derives from it
+##
+## Crossings between them go through dual-clock BRAM/FIFO and 2-FF
+## synchronisers (rst_pclk_sync / rst_vga_sync), which already handle CDC.
+## Group them as asynchronous so the timing engine doesn't try to chase
+## inter-clock paths or report bogus violations.
+set_clock_groups -asynchronous \
+    -group [get_clocks -include_generated_clocks sys_clk_pin] \
+    -group [get_clocks cam_pclk_pin]
 
 ## Configuration bitstream options
 set_property CONFIG_VOLTAGE 3.3 [current_design]
