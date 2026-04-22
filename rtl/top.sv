@@ -20,12 +20,10 @@
 //   Pixel then flows through grayscale / invert / sobel filters via filter_mux.
 //
 // Simplifications & trade-offs (documented in the report):
-//   * Frame buffer stores 4-bit luma (Y) only.  We replicate Y onto all
-//     three colour channels for display.  This shrinks the buffer to ~308
-//     Kbit so it fits the Basys 3 BRAM budget; the visible cost is that
-//     the raw video is grayscale, but every filter (gray, invert, Sobel)
-//     already works on luma, so they look identical to a colour pipeline.
-//   * Sobel operates on grayscale intensity (4-bit).
+//   * Frame buffer is a 320x240 x 12-bit RGB444 Simple Dual-Port BRAM
+//     instantiated via xpm_memory_sdpram (explicit SDP - Vivado packs it
+//     into ~25 RAMB36, comfortably under the Basys 3 budget).
+//   * Sobel operates on grayscale intensity (4-bit luma).
 //   * Mode B relies on the camera providing a clean 60 Hz VGA stream;
 //     if jitter is too high we fall back to QVGA buffered mode (sw15=0).
 // ============================================================================
@@ -201,22 +199,19 @@ module top (
         .fb_row  (fb_row_r)
     );
 
-    // Frame buffer stores 4-bit luma (Y) only.  We replicate Y onto every
-    // colour channel to form a 12-bit RGB444 grayscale value for display
-    // and the downstream filters.
-    logic [3:0]  fb_dout_y;
+    // Frame buffer stores 12-bit RGB444 directly.  xpm_memory_sdpram
+    // packs it as a Simple Dual-Port BRAM (independent PCLK / clk_vga
+    // clocks).
     logic [11:0] fb_dout;
-    frame_buffer #(.DATA_W(4)) u_fb (
+    frame_buffer #(.DATA_W(12)) u_fb (
         .clk_wr  (cam_pclk),
         .we      (fb_we),
         .addr_wr (cap_fb_addr),
-        .din     (cap_y_pix),
+        .din     (cap_rgb444),
         .clk_rd  (clk_vga),
         .addr_rd (rd_addr),
-        .dout    (fb_dout_y)
+        .dout    (fb_dout)
     );
-
-    assign fb_dout = {fb_dout_y, fb_dout_y, fb_dout_y};
 
     // -------------------- Line buffer (Mode B stream-through) --------------
     // Reuse the 4-bit luma produced inside the capture block.

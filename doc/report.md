@@ -49,7 +49,7 @@ switch:
 | `sccb_rom`           | Register tables for QVGA and VGA RGB565 |
 | `cam_configurator`   | Power-up sequence and ROM streamer |
 | `ov7670_capture`     | Byte assembly + column/row counters |
-| `frame_buffer`       | 320x240 × 4-bit luma (Y) dual-clock BRAM |
+| `frame_buffer`       | 320x240 × 12-bit RGB444 Simple Dual-Port BRAM (xpm_memory_sdpram) |
 | `line_buffer_3row`   | 3x3 sliding window for convolution |
 | `vga_sync`           | 640x480@60 sync generator |
 | `addr_gen`           | Frame-buffer read address w/ pixel doubling |
@@ -65,28 +65,32 @@ Basys 3 provides **1,800 Kbits** of BRAM.
 
 | Structure              | Size              | Bits     |
 |------------------------|-------------------|----------|
-| `frame_buffer`         | 320×240 × 4 bit   | 307,200  |
+| `frame_buffer`         | 320×240 × 12 bit  | 921,600  |
 | `line_buffer_3row`     | 2 × 640 × 4 bit   | 5,120    |
 | Miscellaneous          | —                 | <1 Kb    |
-| **Total**              |                   | **~313 Kb** |
+| **Total**              |                   | **~927 Kb** |
 
-This evolved through three iterations:
+The frame buffer went through three iterations before landing on the
+final structure:
 
-1. **Plan: 12-bit RGB444.**  76,800 × 12 bits = 921,600 bits.  Vivado
-   needed ~76 RAMB18 to hold this because the 76,800-deep × 12-bit
-   geometry does not tile cleanly into any native BRAM configuration,
-   triggering a `[DRC UTLZ-1]` over-utilization error.
-2. **Attempt: 8-bit RGB332.**  Halved the data width and removed the
-   in-RAM bounds check.  Vivado still placed 48 BRAM (limit 40) because
-   the 76,800 depth got rounded up to the next native size and was
-   replicated for the 8-bit width.
-3. **Final: 4-bit grayscale (Y).**  Storing only luma fits the memory in
-   `RAMB36 (8192×4)` mode → `ceil(76800/8192) = 10 RAMB36`, well below
-   the 40-site budget on `xc7a35t`.  All filters already operate on luma
-   (`grayscale`, `invert`, `sobel`), so the pipeline is unchanged; the
-   only visible cost is that the *raw* mode displays a grayscale image
-   rather than a colour one.  The top level replicates `Y` onto all three
-   colour channels so the rest of the data path remains 12-bit RGB444.
+1. **Plan: 12-bit RGB444 via SV array inference.**  `(* ram_style =
+   "block" *)` with two `always_ff` blocks on different clocks.  Vivado
+   inferred it as *true* dual-port with output registers, so the
+   76,800 × 12 geometry ballooned to ~76 RAMB18 and triggered a
+   `[DRC UTLZ-1]` over-utilization.  Even shrinking to 8-bit RGB332 or
+   4-bit luma kept producing 48 RAMB18 (Vivado was packing each wide
+   word as two thin slices and duplicating the memory for the two
+   read-capable ports).
+2. **Root cause:** the SystemVerilog inference template was matching
+   true-dual-port semantics, not simple-dual-port.  The reference
+   design solves this by using a `blk_mem_gen` IP core that asks for
+   Simple Dual-Port explicitly.
+3. **Final: `xpm_memory_sdpram`.**  The XPM macro lets the RTL request
+   Simple Dual-Port behaviour with independent clocks directly inside
+   the source file, matching the reference project without needing to
+   ship a `.xci` file.  Vivado packs the 921,600-bit buffer into roughly
+   25 RAMB36 tiles, well inside the `xc7a35t` budget, and the raw mode
+   is colour again.
 
 ### 5. Filter design notes
 

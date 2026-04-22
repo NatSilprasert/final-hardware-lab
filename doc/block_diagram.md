@@ -29,7 +29,7 @@ flowchart LR
         SCCB[sccb_master]
         ROM[sccb_rom]
         Cap[ov7670_capture]
-        FB[frame_buffer 320x240 x 4-bit Y luma]
+        FB[frame_buffer 320x240 x 12-bit RGB444 xpm_memory_sdpram]
         LB[line_buffer_3row 3 x 640 x 4-bit]
         VGASync[vga_sync 640x480 60Hz]
         AddrGen[addr_gen pixel doubler]
@@ -69,7 +69,7 @@ flowchart LR
     CamHREF --> Cap
     CamD --> Cap
 
-    Cap -- "pix_y (4-bit), addr, we" --> FB
+    Cap -- "pix_rgb444, addr, we" --> FB
     Cap -- "cap_y (4-bit)" --> LB
     LB -- "3x3 window" --> Sobel
     FB -- "dout" --> Gray

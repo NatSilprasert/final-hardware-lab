@@ -120,6 +120,15 @@ set_property PACKAGE_PIN A15 [get_ports cam_siod]
 ## Declare PCLK as clock (incoming from camera, ~12-25 MHz)
 create_clock -add -name cam_pclk_pin -period 40.00 -waveform {0 20} [get_ports cam_pclk]
 
+## The OV7670 PCLK enters the FPGA on pin A16, which is a Pmod connector
+## pin and is NOT a clock-capable (MRCC/SRCC) input.  Vivado will refuse to
+## route it onto the dedicated clock network unless we tell it to relax
+## the rule below, otherwise we get [Place 30-574]
+## "CLOCK_DEDICATED_ROUTE" violations after synthesis.  The frame buffer
+## handles CDC via dual-clock BRAM so using a regular routing track is
+## acceptable for this design.
+set_property CLOCK_DEDICATED_ROUTE FALSE [get_nets cam_pclk_IBUF]
+
 ## Asynchronous clock domains.
 ##
 ## We have two unrelated clock families:

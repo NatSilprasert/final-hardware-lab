@@ -1,30 +1,26 @@
 // ============================================================================
-// frame_buffer.sv - True dual-port BRAM, asynchronous clocks.
+// frame_buffer.sv - 320 x 240 x 12-bit RGB444 asynchronous dual-port frame
+// buffer, implemented with the Xilinx Parameterized Macro xpm_memory_sdpram.
 //
-//   Port A : write side, clocked by clk_wr (camera PCLK).
-//   Port B : read  side, clocked by clk_rd (VGA clock).
+// Why XPM instead of raw SystemVerilog inference?
+//   A pure-RTL "simple dual-port" template can be mis-inferred by Vivado as
+//   true dual-port with an output register, which doubles BRAM usage because
+//   the 76,800-deep x 12-bit shape does not map cleanly to any native
+//   RAMB36/RAMB18 geometry.  xpm_memory_sdpram lets us ask *explicitly* for
+//   Simple Dual-Port with independent clocks, matching what the reference
+//   design achieves via a blk_mem_gen IP core.
 //
-// Storage: 320 x 240 pixels x 4 bits grayscale luma (Y).  4-bit Y is chosen
-// over RGB332/RGB444 so the frame fits inside Basys 3's BRAM budget even
-// when Vivado rounds the 76,800-deep geometry up to a native BRAM depth:
+//   Size : 76,800 words x 12 bits = 921,600 bits ~= 25 RAMB36 (AMOUNT_WASTED
+//          tiles are negligible because 76,800 close to 2 * RAMB36 cap).
 //
-//   76,800 x 4 = 307,200 bits
-//   RAMB36 in 8192x4 mode  -> ceil(76800/8192) = 10 RAMB36 tiles
-//   (well within the 40 available BRAM sites on xc7a35t).
-//
-// The top-level replicates the stored Y onto all three channels to give a
-// grayscale "color" image.  Filters (grayscale, invert, Sobel) all operate
-// on luma anyway, so the visual pipeline is unchanged; only the raw mode
-// is a grayscale video instead of a colour one (documented in the report
-// as an intentional memory-budget trade-off).
-//
-// Vivado infers this pattern as a dual-clock dual-port BRAM with no
-// primitive instantiation required.
+// The top-level writes the camera pixel in RGB444 on PCLK and the VGA reader
+// reads it on clk_vga.  Both clocks are declared asynchronous in the XDC
+// (set_clock_groups -asynchronous), so the macro handles CDC internally.
 // ============================================================================
 `timescale 1ns/1ps
 
 module frame_buffer #(
-    parameter int DATA_W    = 4,
+    parameter int DATA_W    = 12,
     parameter int DEPTH     = 320*240,
     parameter int ADDR_W    = $clog2(320*240)   // 17
 ) (
@@ -40,15 +36,60 @@ module frame_buffer #(
     output logic [DATA_W-1:0] dout
 );
 
-    (* ram_style = "block" *) logic [DATA_W-1:0] mem [0:DEPTH-1];
+    // xpm_memory_sdpram: Simple Dual-Port RAM
+    //   - Independent read/write clocks
+    //   - No output register on read port (READ_LATENCY_B = 1)
+    //   - Common clocking disabled (CLOCKING_MODE = "independent_clock")
+    //
+    // Reference: UG953 (xpm_memory), Vivado 2019.1+ supports it natively.
+    xpm_memory_sdpram #(
+        .MEMORY_SIZE             (DEPTH * DATA_W),   // total bits
+        .MEMORY_PRIMITIVE        ("block"),
+        .CLOCKING_MODE           ("independent_clock"),
+        .MEMORY_INIT_FILE        ("none"),
+        .MEMORY_INIT_PARAM       ("0"),
+        .USE_MEM_INIT            (1),
+        .WAKEUP_TIME             ("disable_sleep"),
+        .MESSAGE_CONTROL         (0),
+        .ECC_MODE                ("no_ecc"),
+        .AUTO_SLEEP_TIME         (0),
 
-    // Unconditional write: the caller gates "we" when (col,row) are in-range.
-    always_ff @(posedge clk_wr) begin
-        if (we) mem[addr_wr] <= din;
-    end
+        // Write port A
+        .WRITE_DATA_WIDTH_A      (DATA_W),
+        .BYTE_WRITE_WIDTH_A      (DATA_W),
+        .ADDR_WIDTH_A            (ADDR_W),
 
-    always_ff @(posedge clk_rd) begin
-        dout <= mem[addr_rd];
-    end
+        // Read port B
+        .READ_DATA_WIDTH_B       (DATA_W),
+        .ADDR_WIDTH_B            (ADDR_W),
+        .READ_RESET_VALUE_B      ("0"),
+        .READ_LATENCY_B          (1),
+        .WRITE_MODE_B            ("no_change"),
+
+        .RST_MODE_A              ("SYNC"),
+        .RST_MODE_B              ("SYNC")
+    ) u_bram (
+        // Write port
+        .clka   (clk_wr),
+        .ena    (we),
+        .wea    (we),
+        .addra  (addr_wr),
+        .dina   (din),
+
+        // Read port
+        .clkb   (clk_rd),
+        .enb    (1'b1),
+        .rstb   (1'b0),
+        .regceb (1'b1),
+        .addrb  (addr_rd),
+        .doutb  (dout),
+
+        // Unused (tie off)
+        .injectdbiterra (1'b0),
+        .injectsbiterra (1'b0),
+        .sleep          (1'b0),
+        .dbiterrb       (),
+        .sbiterrb       ()
+    );
 
 endmodule
