@@ -33,7 +33,10 @@ module tb_filter_sobel;
         p10=img[2][1]; p11=img[2][2]; p12=img[2][3];
         p20=img[3][1]; p21=img[3][2]; p22=img[3][3];
 
-        repeat (5) @(posedge clk);
+        // Pipeline depth: gx -> abs -> mag -> edge_bit -> pix_out.
+        // Wait long enough for both the initial X-flush (first cycles after
+        // t=0) and the full 5-cycle pipeline latency.
+        repeat (10) @(posedge clk);
         $display("Sobel on vertical edge: pix_out=%h (expect FFF)", pix);
         if (pix !== 12'hFFF) $fatal(1,"edge not detected");
 
@@ -43,7 +46,7 @@ module tb_filter_sobel;
         p10=img[2][1]; p11=img[2][2]; p12=img[2][3];
         p20=img[3][1]; p21=img[3][2]; p22=img[3][3];
 
-        repeat (5) @(posedge clk);
+        repeat (10) @(posedge clk);
         $display("Sobel on flat area:   pix_out=%h (expect 000)", pix);
         if (pix !== 12'h000) $fatal(1,"false edge on flat area");
 

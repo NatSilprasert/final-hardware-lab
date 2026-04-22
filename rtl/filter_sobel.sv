@@ -22,8 +22,14 @@ module filter_sobel (
     output logic [11:0] pix_out
 );
 
+    // Pipeline registers initialised to 0 so simulators (and Xilinx
+    // power-on reset) produce defined values immediately instead of X's
+    // propagating through the 3-stage pipeline.
+    initial pix_out = 12'h000;
+
     // Stage 1: compute Gx, Gy
-    logic signed [9:0] gx, gy;
+    logic signed [9:0] gx = 10'sd0;
+    logic signed [9:0] gy = 10'sd0;
     always_ff @(posedge clk) begin
         gx <= $signed({2'b0, p02}) + $signed({1'b0, p12, 1'b0}) + $signed({2'b0, p22})
             - $signed({2'b0, p00}) - $signed({1'b0, p10, 1'b0}) - $signed({2'b0, p20});
@@ -32,8 +38,8 @@ module filter_sobel (
     end
 
     // Stage 2: |Gx| + |Gy|
-    logic [9:0] abs_gx, abs_gy;
-    logic [10:0] mag;
+    logic [9:0]  abs_gx = 10'd0, abs_gy = 10'd0;
+    logic [10:0] mag    = 11'd0;
     always_ff @(posedge clk) begin
         abs_gx <= gx[9] ? (~gx + 1'b1) : gx;
         abs_gy <= gy[9] ? (~gy + 1'b1) : gy;
@@ -41,7 +47,7 @@ module filter_sobel (
     end
 
     // Stage 3: threshold -> B/W
-    logic edge_bit;
+    logic edge_bit = 1'b0;
     always_ff @(posedge clk) begin
         // Scale threshold (4-bit, 0..15) roughly to the range of mag (0..120).
         // Use threshold<<3 -> 0..120.
